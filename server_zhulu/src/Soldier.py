@@ -31,7 +31,7 @@ class Soldier(Owner):
 
 	## The method for the soldier moves.
 	# @param self The object pointer.
-	# @param dst The object of the destination land. 
+	# @param dst The ID of the destination land. 
 	def move(self, dst):
 		self.station = dst
 

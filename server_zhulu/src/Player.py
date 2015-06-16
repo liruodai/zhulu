@@ -35,11 +35,13 @@ class Player(Base):
 	# @param nickname The name of the player.
 	# @param country The force of the player. 900 for yan. 901 for qi. 902 for qin. 903 for chu
 	# @param myMap The game map for all the players.
-	def __init__(self, nickname, country, myMap = None):
+	def __init__(self, nickname, country, myMap = None, id2soldier = None):
 		self.nickname = nickname
 		self.country = country
 		# every player use the same map object.
 		self.map = myMap
+		# every player use the same id2soldier get the soldier object from the id.
+		self.id2soldier = id2soldier
 		# the initial action points for the player.
 		self.ap = 10
 		# the player's lands
@@ -49,76 +51,32 @@ class Player(Base):
 
 
 		# initial the capital and the only one soldier.
-		if 900 == self.country:
-			# Yan's capital id_land is 14
-			# self.station = Land(14, 3, 900)
-			land = myMap.id2land[14]
-			land.is_capital = True
-			land.owner = 900
+		self.init_capital_soldier(country)
 
-			soldier = Soldier(201, 900, 'K', land)
-			land.unmanning['K'].append(soldier)
+	## The method that initial the capital and the soldiers. One knight and three warriors
+	# @param self The object pointer.
+	# @param force The force of the player.
+	def init_capital_soldier(self, force):
+		
+		info = {900:{'CAPITAL':14, 'SOLDIER':[201,205,206,207]}, 901:{'CAPITAL':68, 'SOLDIER':[221,225,226,227]},\
+				902:{'CAPITAL':29, 'SOLDIER':[241,245,246,247]}, 903:{'CAPITAL':53, 'SOLDIER':[261,265,266,267]}}
 
-			self.lands.append(land)
+		# initial the capital information
+		capital = info[force]['CAPITAL']
 
-			self.soldiers['K'].append(soldier)
+		land = self.map.id2land[capital]
+		land.is_capital = True
+		land.owner = force
 
-			# self.station = myMap.id2land[14]
-			# # set the land's owner to the Yan.
-			# self.station.owner = 900
-			# # initial the only one soldier
-			# self.soldier = Soldier(201, 900, 'K', self.station)
-		elif 901 == self.country:
-			# Qi's capital id_land is 68
-			# self.station = Land(68, 3, 901)
-			land = myMap.id2land[68]
-			land.is_capital = True
-			land.owner = 901
+		self.lands.append(capital)
 
-			soldier = Soldier(221, 901, 'K', land)
-			land.unmanning['K'].append(soldier)
-
-			self.lands.append(land)
-
-			self.soldiers['K'].append(soldier)
-
-			# self.station = myMap.id2land[68]
-			# self.station.owner = 901
-			# self.soldier = Soldier(221, 901, 'K', self.station)
-		elif 902 == self.country:
-			# Qin's capital id_land is 29
-			# self.station = Land(29, 3, 902)
-			land = myMap.id2land[29]
-			land.is_capital = True
-			land.owner = 902
-
-			soldier = Soldier(241, 902, 'K', land)
-			land.unmanning['K'].append(soldier)
-
-			self.lands.append(land)
-
-			self.soldiers['K'].append(soldier)
-
-			# self.station = myMap.id2land[29]
-			# self.station.owner = 902
-			# self.soldier = Soldier(241, 902, 'K', self.station)
-		elif 903 == self.country:
-			# Chu's capital id_land is 53
-			# self.station = Land(53, 3, 903)
-			land = myMap.id2land[53]
-			land.is_capital = True
-			land.owner = 903
-
-			soldier = Soldier(261, 903, 'K', land)
-			land.unmanning['K'].append(soldier)
-
-			self.lands.append(land)
-
-			self.soldiers['K'].append(soldier)
-
-			# self.station = myMap.id2land[53]
-			# self.station.owner = 903
-			# self.soldier = Soldier(261, 903, 'K', self.station)
+		# initial the soldiers
+		for i in info[force]['SOLDIER']:
+			soldier = self.id2soldier[i]
+			soldier.station = capital
+		
+			land.unmanning[soldier.type].append(i)
+			self.soldiers[soldier.type].append(i)
 
 	## The method that allows player to move the soldier.
 	# @param self The object pointer.
@@ -129,11 +87,11 @@ class Player(Base):
 		# set the land's owner to the player.
 		dst.owner = self.country
 		# original land's owner will be none.
-		self.station.owner = None
+		#self.station.owner = None
 		# !! use this to record all the lands which the player has occupied. Will be modified later.
-		self.station = dst
+		#self.station = dst
 		# call the soldier's move method.
-		self.soldier.move(dst)
+		self.soldier.move(pos)
 
 
 	## The str method of the class. The form of the text information will like that: Player$ nickname:GAO force:900, knights:1, warriors:0
@@ -146,8 +104,21 @@ class Player(Base):
 
 if __name__ == '__main__':
 	# simple test for the player class.
-	p = Player('GAO', 900, Map())
+	import pickle
+
+	with open('../data/id2soldier.pkl', 'rb') as f:
+		id2soldier = pickle.load(f)
+	p = Player('GAO', 900, Map(), id2soldier)
 	print p
+	for k in p.lands:
+		print k
+
+	for k in p.soldiers['K']:
+		print k
+
+
+	for k in p.soldiers['W']:
+		print k
 
 
 

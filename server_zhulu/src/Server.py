@@ -11,6 +11,7 @@ from Map import Map
 from random import shuffle,randint
 import sys
 import copy
+import pickle
 
 
 Yan, Qi, Qin, Chu = 900, 901, 902, 903
@@ -33,7 +34,12 @@ class Server:
 		
 		# 载入地图数据
 		self.map = Map()
+
+		# 载入id2soldier
+		with open('../data/id2soldier.pkl', 'rb') as f:
+			self.id2soldier = pickle.load(f)
 		
+
 		# 用于随机化分配各家势力
 		self.rand_force = [Yan, Qi, Qin, Chu]
 		shuffle(self.rand_force)
