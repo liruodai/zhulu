@@ -27,12 +27,12 @@ class Land(Owner):
 	# @param owner The owner of the land.
 	# @param type The type of the land. 0 for mountain. 1 for plain with grain 1. 2 for plain with grain 2. 3 for town.
 	# @param unmaning The soldiers who stand on the land. Store the soldiers's ID in the list.
-	def __init__(self, id, type, owner = None, unmanning={'K':[],'W':[]}):
+	def __init__(self, id, type, owner = None, unmanning = None):
 		super(Land, self).__init__(id, owner)
 		self.type = type
 		# the unmaning is dictionary includes two sub-dictionary.
 		# The knight and the warrior
-		self.unmanning = unmanning
+		self.unmanning = {'K':[],'W':[]}
 		# if the land is barn than the is_barn is setted to true. Otherwise set to false.
 		self.is_barn = False
 		# whether the land is capital or not.

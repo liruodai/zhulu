@@ -15,9 +15,9 @@ from Map import Map
 
 class Player(Base):
 	'''
-	The Player class has these attributes:nickname, country, ap, station, soldier, and the map.
+	The Player class has these attributes:nickname, force, ap, station, soldier, and the map.
 	nickname is the name when player register in the game.
-	country is the force of the player. 900 for yan. 901 for qi. 902 for qin. 903 for chu.
+	force is the force of the player. 900 for yan. 901 for qi. 902 for qin. 903 for chu.
 	ap is the points that the player can use to take actions.
 	station record the player's domain lands.
 	soldier record all the soldiers that the player has.
@@ -33,11 +33,11 @@ class Player(Base):
 	## The constructor of the Player class.
 	# @param self The object pointer.
 	# @param nickname The name of the player.
-	# @param country The force of the player. 900 for yan. 901 for qi. 902 for qin. 903 for chu
+	# @param force The force of the player. 900 for yan. 901 for qi. 902 for qin. 903 for chu
 	# @param myMap The game map for all the players.
-	def __init__(self, nickname, country, myMap = None, id2soldier = None):
+	def __init__(self, nickname, force, myMap = None, id2soldier = None):
 		self.nickname = nickname
-		self.country = country
+		self.force = force
 		# every player use the same map object.
 		self.map = myMap
 		# every player use the same id2soldier get the soldier object from the id.
@@ -51,7 +51,7 @@ class Player(Base):
 
 
 		# initial the capital and the only one soldier.
-		self.init_capital_soldier(country)
+		self.init_capital_soldier(force)
 
 	## The method that initial the capital and the soldiers. One knight and three warriors
 	# @param self The object pointer.
@@ -67,6 +67,7 @@ class Player(Base):
 		land = self.map.id2land[capital]
 		land.is_capital = True
 		land.owner = force
+		print land
 
 		self.lands.append(capital)
 
@@ -79,46 +80,72 @@ class Player(Base):
 			self.soldiers[soldier.type].append(i)
 
 	## The method that allows player to move the soldier.
-	# @param self The object pointer.
-	# @param pos The destination where the soldier should go.Pos is the logic id for the land.
-	def move(self, pos):
+	# @param self: The object pointer.
+	# @param force: The force number.
+	# @param dst_id: The destination's id.
+	# @param s_id: The marching soldiers' ids; type can be str or list, for the case that one or more soldiers march
+	def move(self, force, dst_id, s_id):
 		# get the land object from the game map
-		dst = self.map.id2land[pos]
-		# set the land's owner to the player.
-		dst.owner = self.country
-		# original land's owner will be none.
-		#self.station.owner = None
-		# !! use this to record all the lands which the player has occupied. Will be modified later.
-		#self.station = dst
-		# call the soldier's move method.
-		self.soldier.move(pos)
+		dst = self.map.id2land[dst_id]
+
+		# Step 1: 得到出发地点ori
+		ori_id = self.id2soldier[s_id[0]].station
+		ori = self.map.id2land[ori_id] 
+		# Step 2: 修改soldier.station
+		for item in s_id:
+			soldier = self.id2soldier[item] 
+			soldier.station = dst_id
+		# Step 3: 修改land.unmanning
+			ori.unmanning[soldier.type].remove(item) 	# 修改出发地点信息
+			dst.unmanning[soldier.type].append(item) 	# 修改目标地点信息
+		# Step 4: 修改lands和land.owner
+		if dst_id not in self.lands:
+			self.lands.append(dst_id) 		# 修改目标地点信息
+		dst.owner = force
+		if ori.is_barn == False and ori.type != 3 and ori.unmanning['K'] == [] and ori.unmanning['W'] == []:
+			self.lands.remove(ori_id) 	# 修改出发地点信息
+			ori.owner = None
+
+		print 'move action--', force
+		print 'ori: ', ori_id
+		print 'dst: ', dst_id 
+		print 'soldiers: ',  s_id
+		print 'lands: ', self.lands
+		print 'ori.owner and unmanning: ', ori.owner, ori.unmanning 
+		print 'dst.owner and unmanning: ', dst.owner, dst.unmanning
 
 
 	## The str method of the class. The form of the text information will like that: Player$ nickname:GAO force:900, knights:1, warriors:0
 	# @param self The object pointer.
 	# @return string to represent the object.
 	def __str__(self):
-		return 'Player$' + " nickname:" + self.nickname + " force:" + str(self.country) + ", knights:" + str(len(self.soldiers['K'])) +\
+		return 'Player$' + " nickname:" + self.nickname + " force:" + str(self.force) + ", knights:" + str(len(self.soldiers['K'])) +\
 		", warriors:" + str(len(self.soldiers['W']))
 
 
 if __name__ == '__main__':
 	# simple test for the player class.
 	import pickle
+	m = Map()
 
 	with open('../data/id2soldier.pkl', 'rb') as f:
 		id2soldier = pickle.load(f)
-	p = Player('GAO', 900, Map(), id2soldier)
-	print p
-	for k in p.lands:
+	p1 = Player('GAO1', 900, m, id2soldier)
+	p2 = Player('GAO2', 901, m, id2soldier)
+	p3 = Player('GAO3', 902, m, id2soldier)
+	p4 = Player('GAO4', 903, m, id2soldier)
+	print p1
+	for k in p1.lands:
 		print k
 
-	for k in p.soldiers['K']:
+	for k in p1.soldiers['K']:
 		print k
 
 
-	for k in p.soldiers['W']:
+	for k in p1.soldiers['W']:
 		print k
+
+	print p1.map.id2land[14].unmanning
 
 
 
