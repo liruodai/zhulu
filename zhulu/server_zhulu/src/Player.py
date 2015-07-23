@@ -44,6 +44,10 @@ class Player(Base):
 		self.id2soldier = id2soldier
 		# the initial action points for the player.
 		self.ap = 10
+		# initial the GRAIN number for the player
+		self.grain = [10, 0]
+		# 用于判断是否是第一次建仓
+		self.is_first_barn = True
 		# the player's lands
 		self.lands = []
 		# the player's soldiers

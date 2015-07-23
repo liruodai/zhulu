@@ -60,7 +60,7 @@ class Server:
 		# 玩家turn顺序表，存势力号900,901...
 		self.turn_list = []
 
-		# 当前turn，存势力号900等
+		# 当前turn，存势力号900等,eg. 900
 		self.current_turn = 0
 		self.next_turn = 0
 		# 标记当前round
@@ -123,7 +123,7 @@ class Server:
 			for v in force_list:
 				self.send_queue[v].put(msg, 1)
 				print 'send msg %s to %d: ' % (msg, v)
-		if isinstance(force_list, int):		#若force_list是单个国家
+		elif isinstance(force_list, int):		#若force_list是单个国家
 			self.send_queue[force_list].put(msg, 1)
 			print 'send msg %s to %d: ' % (msg, force_list)
 	
@@ -131,18 +131,19 @@ class Server:
 	# @param cmd, 类型：字符串, 内容：命令, eg:'LOGIN'
 	# @param data_list, 类型：任意int、float、str或它们的数组, 内容：数据, eg:'nickname'或['nickname','xiaoming']
 	def encode_msg(self, cmd, data_list):
-		temp_data = copy.deepcopy(data_list)
-		if isinstance(temp_data, list):		#若data_list是数据列表
-			for idx, item in enumerate(temp_data):
-				temp_data[idx] = str(item)	# 将数据转化为str型
+		temp_data = []
+		if isinstance(data_list, list):		#若data_list是数据列表
+			for item in data_list:
+				temp_data.append(str(item)) # 将数据转化为str型
 			temp_data = ','.join(temp_data)
 			return cmd + '#' + temp_data + ';'
-		if isinstance(temp_data, str):		#若data_list是单个字符串数据
-			temp_data = str(temp_data)
+		elif isinstance(data_list, str):		#若data_list是单个字符串数据
+			temp_data = str(data_list)
 			return cmd + '#' + temp_data + ';'
 	
 	## 接收信息并解码。返回解码值，如果多条消息粘连，将第一条之后的消息按原格式放回消息队列recv_queue中。
 	# @return: force(int), cmd(str), data(str)
+	# note:此处有！！！！隐患！！！！！粘连消息处理有点问题，建议使用buffer队列缓冲粘连消息。
 	def recv_msg(self):
 		try:
 			raw_data = self.recv_queue.get(1)	# 从消息队列中取消息
@@ -151,10 +152,10 @@ class Server:
 			if '' != raw_data[1]:				# 判断是否有多条消息粘连，若粘连
 				for n in data_list[1:-1]:		# 则将第一条之后的消息加‘;’放回消息队列
 					self.recv_queue.put(n+';', 1)
-				print self.recv_queue
+				# print self.recv_queue
 			force, msg = data_list[0].split('$')	# 解码第一条消息
 			force = int(force)
-			cmd, data = msg.split('#')				# force, cmd, data分别为势力，指令，数据。
+			cmd, data = msg.split('#')			# force, cmd, data分别为势力，指令，数据。
 			# data = data.split(',') 				# type(data) == list
 			# # 若data中只有一个str，则将data转化为str类型，否则保留为list类型
 			# if 1 == len(data):
@@ -261,6 +262,92 @@ class Server:
 		else:
 			return self.turn_list[idx+1]
 
+	def consume_grain(self, force, grain_cost):
+		if grain_cost > 0:
+			grain_in_capital = self.players_list[force].grain[0]
+			grain_in_barn = self.players_list[force].grain[1]
+			comsume_in_capital = grain_cost / 2
+			comsume_in_barn = grain_cost - comsume_in_capital
+			if grain_in_capital >= comsume_in_capital and grain_in_barn >= comsume_in_barn:
+				self.players_list[force].grain[0] -= comsume_in_capital
+				self.players_list[force].grain[1] -= comsume_in_barn
+				print 'Grains in capital: ', self.players_list[force].grain[0]
+				print 'Grains in barn: ', self.players_list[force].grain[1]
+			elif grain_in_capital < comsume_in_capital:
+				self.players_list[force].grain[1] -= grain_cost - self.players_list[force].grain[0]
+				self.players_list[force].grain[0] = 0
+				print 'Grains in capital: ', self.players_list[force].grain[0]
+				print 'Grains in barn: ', self.players_list[force].grain[1]
+			elif grain_in_barn < comsume_in_barn:
+				self.players_list[force].grain[0] -= grain_cost - self.players_list[force].grain[1]
+				self.players_list[force].grain[1] = 0
+				print 'Grains in capital: ', self.players_list[force].grain[0]
+				print 'Grains in barn: ', self.players_list[force].grain[1]
+			else:
+				print "There is a bug about grain cost!"
+
+
+	## 回合结束阶段，第一步：收粮。
+	#
+	def harvest(self):
+		# step 1: 找到每个玩家的所有粮仓，存入landnum[force]字典中，字典元素是地块编号的列表
+		barnnum = {}
+		landnum = {}
+		for f in [Yan, Qi, Qin, Chu]:
+			barnnum[f] = set()
+			for l in self.players_list[f].lands:
+				if True == self.map.id2land[l].is_barn:
+					barnnum[f].add(l)
+		print "Barns: ", barnnum
+		# step 2: 找到每个粮仓的相邻地块，append入landnum[force]中
+		for f in [Yan, Qi, Qin, Chu]:
+			landnum[f] = set()
+			for item in barnnum[f]:
+				landnum[f] |= set(self.map.get_neighbour_id(item))
+		print "Adjacent lands of Barns: ", landnum
+		# step 3: 遍历所有相邻地块列表landnum，若某相邻地块被其他force占有，则从landnum中删除该地块
+		for f in [Yan, Qi, Qin, Chu]:
+			temp_set = set()
+			for land in landnum[f]:
+				if self.map.id2land[land].owner and f != self.map.id2land[land].owner:
+					temp_set.add(land)
+			landnum[f] -= temp_set
+		print "Adjacent lands not being occupied by another force: ", landnum
+		# step 4: 删掉landnum中，被不同force的粮仓共同相邻的land
+		inter_set12 = landnum[Yan] & landnum[Qi]
+		inter_set13 = landnum[Yan] & landnum[Qin]
+		inter_set14 = landnum[Yan] & landnum[Chu]
+		inter_set23 = landnum[Qi] & landnum[Qin]
+		inter_set24 = landnum[Qi] & landnum[Chu]
+		inter_set34 = landnum[Qin] & landnum[Chu]
+		landnum[Yan] -= inter_set12 | inter_set13 | inter_set14
+		landnum[Qi] -= inter_set12 | inter_set23 | inter_set24
+		landnum[Qin] -= inter_set13 | inter_set23 | inter_set34
+		landnum[Chu] -= inter_set14 | inter_set24 | inter_set34
+		for f in [Yan, Qi, Qin, Chu]:
+			landnum[f] |= barnnum[f]
+		print "Valid lands that produce grains: ", landnum
+		# step 5: 根据所有产粮的land的产粮值，计算所收粮数
+		for f in [Yan, Qi, Qin, Chu]:
+			sum_temp = 0
+			for land in landnum[f]:
+				if 2 == self.map.id2land[land].type:
+					sum_temp += 2
+				elif 1 == self.map.id2land[land].type:
+					sum_temp += 1
+			self.players_list[f].grain[1] += sum_temp
+			print "The added grains in barns of %d: %d" % (f, sum_temp)
+		# step 6: 4个起始都城各产粮2单位
+		capitals = 14,29,53,68
+		for city in capitals:
+			f = self.map.id2land[city].owner
+			self.players_list[f].grain[0] += 2
+		for f in [Yan, Qi, Qin, Chu]:
+			print "The total grains of %d: %d" % (f, sum(self.players_list[f].grain))
+
+
+			
+
 	## 判断游戏是否结束
 	# @return: True or False
 	def if_gameover(self):
@@ -296,7 +383,7 @@ class Server:
 				if len(self.conn_list) < 4:		# 玩家人数少于4
 					conn, addr = self.sock.accept()		# 持续监听连接
 					print 'Connected with ' + addr[0] + ':' + str(addr[1])
-					self.conn_list[conn] = self.rand_force.pop()	# 有新连接，给分配国家号
+					self.conn_list[conn] = self.rand_force.pop()	# 有新连接，给随机分配国家号
 					threading.Thread(target = self.recv_data, args = (conn, )).start()	# 开收消息线程
 					threading.Thread(target = self.send_data, args = (conn, )).start()	# 开发消息线程
 					force, cmd, data = self.recv_msg()		# 接收登录消息
@@ -315,7 +402,11 @@ class Server:
 				self.game_init()	# game初始化
 				for force in [Yan, Qi, Qin, Chu]:
 					msg_to_send = self.encode_msg('ALLOC',[force,self.nickname_list[Yan],self.nickname_list[Qi],self.nickname_list[Qin],self.nickname_list[Chu]])
-					self.send_msg(msg_to_send,force)		# 广播每个玩家的势力分配情况
+					self.send_msg(msg_to_send,force)		# 单播每个玩家的势力分配情况
+				# 初始化行军部分参数
+				player_action_flag = 0 		# 标志变量，用来标记player在它的turn中是否有行动；1行动，0无行动
+				march_dic = {} 	# 存储一次完整行军操作移动的士兵和每个士兵消耗的行动点数
+				max_ap = 0 			# 存储一次完整行军操作消耗的最大行动点数ap
 				done_list = []		# 存储收到的DONE#init消息
 				while len(done_list) < 4:	# 不够4个，持续接收
 					force, cmd, data = self.recv_msg()
@@ -337,6 +428,14 @@ class Server:
 				else: 			# 收齐4个AUCTION消息
 					# 排序
 					self.player_order = self.init_order(auction_dic)
+					# 初始化轮次表turn_list和当前轮次current_turn
+					self.turn_list = copy.deepcopy(self.player_order)
+					self.current_turn = copy.deepcopy(self.turn_list[0])
+					self.next_turn = copy.deepcopy(self.turn_list[1])
+					print "player_order: ", type(self.player_order[0]), self.player_order
+					print "current_turn: ", type(self.current_turn), self.current_turn
+					print "next_turn: ", type(self.next_turn), self.next_turn
+					print "turn_list: ", self.turn_list, type(self.turn_list[0])
 					print 'auction_dic: ', auction_dic
 					# 从player.ap中减去消耗的ap点数
 					for force in auction_dic:
@@ -346,6 +445,9 @@ class Server:
 					self.broadcast(msg_to_send)
 					self.status = 'GAME'
 					print 'Auction complete! Game start!'
+					# 广播当前round和turn
+					msg_to_send = self.encode_msg('ROUND', [self.round, self.current_turn])
+					self.broadcast(msg_to_send)
 
 			elif self.status == 'GAME':
 				# 确定回合
@@ -355,114 +457,176 @@ class Server:
 				# update
 				# DONE#turn
 
-				# 初始化轮次表turn_list和当前轮次current_turn
-				self.turn_list = copy.deepcopy(self.player_order)
-				self.current_turn = copy.deepcopy(self.turn_list[0])
-				self.next_turn = copy.deepcopy(self.turn_list[1])
-				print "player_order: ", type(self.player_order[0]), self.player_order
-				print "current_turn: ", type(self.current_turn), self.current_turn
-				print "next_turn: ", type(self.next_turn), self.next_turn
-				print "turn_list: ", self.turn_list, type(self.turn_list[0])
-				player_action_flag = 0 		# 标志变量，用来标记player在它的turn中是否有行动；1行动，0无行动
-				# 初始化行军部分参数
-				march_dic = {} 	# 存储一次完整行军操作移动的士兵和每个士兵消耗的行动点数
-				max_ap = 0 			# 存储一次完整行军操作消耗的最大行动点数ap
+				force, cmd, data = self.recv_msg() 	# 第一版的ACTION行动的data只有dst一个参数
+				if  self.current_turn == force: 	# 必须是当前turn的玩家发出的指令
+					print "right force number!"
 
-				msg_to_send = self.encode_msg('ROUND', [self.round, self.current_turn])
-				self.broadcast(msg_to_send)
+					if cmd == 'MARCH': 		# 行军指令
+						print 'march action!'
+						player = self.players_list[force]
+						data = data.split(',') 	
+						dst = int(data[0]) 			# dst为行军目的地id号
+						s_id = map(int, data[1:]) 	# s_id为行军soldier的id号
+						if self.if_march_legal(march_dic, force, dst, s_id): 	# 如果行军操作合法
+							print 'march legal.'
 
-				while self.status == 'GAME':
-					force, cmd, data = self.recv_msg() 	# 第一版的ACTION行动的data只有dst一个参数
-					if  self.current_turn == force: 	# 必须是当前turn的玩家发出的指令
-						print "right force number!"
+							player_action_flag = 1 	# 标记此player已经action
 
-						if cmd == 'MARCH': 		# 行军指令
-							print 'march action!'
-							player = self.players_list[force]
-							data = data.split(',') 	
-							dst = int(data[0]) 			# dst为行军目的地id号
-							s_id = map(int, data[1:]) 	# s_id为行军soldier的id号
-							if self.if_march_legal(march_dic, force, dst, s_id): 	# 如果行军操作合法
-								print 'march legal.'
+							self.players_list[force].move(force, dst, s_id) 		# 修改players_list中除ap外的所有信息
+							max_ap = self.get_march_ap(march_dic, dst, s_id) 		# 得到当前所有soldier行军消耗的最大ap数
+							print 'max_ap: ', max_ap
+							msg_to_send = self.encode_msg('UPDATE', [force, int(player.ap-max_ap), 'MARCH', dst, ','.join(map(str, s_id))])
+							self.broadcast(msg_to_send)
+						else: 					# 如果行军操作不合法
+							print 'march illegal!'
+							msg_to_send = self.encode_msg('ILLEGAL', ['MARCH', dst, ','.join(map(str, s_id))])
+							self.send_msg(msg_to_send, force)
 
-								player_action_flag = 1 	# 标记此player已经action
+					elif 'DONE' == cmd and 'march' == data: 	# 完成行军指令
+						print 'DONE march!'
+						self.players_list[force].ap -= max_ap 		# 完成行军，修改ap值
+						self.players_list[force].ap = int(self.players_list[force].ap)
+						max_ap = 0 						# 临时变量max_ap和march_dic清空
+						march_dic = {}
 
-								self.players_list[force].move(force, dst, s_id) 		# 修改players_list中除ap外的所有信息
-								max_ap = self.get_march_ap(march_dic, dst, s_id) 		# 得到当前所有soldier行军消耗的最大ap数
-								print 'max_ap: ', max_ap
-								msg_to_send = self.encode_msg('UPDATE', [force, int(player.ap-max_ap), 'MARCH', dst, ','.join(map(str, s_id))])
-								self.broadcast(msg_to_send)
-							else: 					# 如果行军操作不合法
-								print 'march illegal!'
-								msg_to_send = self.encode_msg('ILLEGAL', ['MARCH', dst, ','.join(map(str, s_id))])
-								self.send_msg(msg_to_send, force)
+					elif cmd == 'GUARD':		#防守指令
+						print 'GUARD action'
+						player = self.players_list[force]		#确定此次防守指令的玩家
+						dst = int(data)		#此次防守的位置
+						#判断防守的dst是否在该玩家拥有地块list中
+						#行动点>1才可设置防守
+						if (dst in player.lands) and (player.ap >= 1) and (not (player.map.id2land[dst].unmanning != {} and player.map.id2land[dst].is_barn)):
+							# 缺去掉仓的情况=============
+							print 'guard legal'
+							player.map.id2land[dst].is_defend = True    #标记此dst的防守状态label为True
+							player.ap -= 1           #消耗1个行动点
+							msg_to_send = self.encode_msg('UPDATE', [force, int(player.ap), 'GUARD', dst])
+							self.broadcast(msg_to_send)
+						else:
+							print 'guard illegal'
+							msg_to_send = self.encode_msg('ILLEGAL', ['GUARD', dst])
+							self.send_msg(msg_to_send, force)
 
-						elif 'DONE' == cmd and 'march' == data: 	# 完成行军指令
-							print 'DONE march!'
-							self.players_list[force].ap -= max_ap 		# 完成行军，修改ap值
-							self.players_list[force].ap = int(self.players_list[force].ap)
-							max_ap = 0 						# 临时变量max_ap和march_dic清空
-							march_dic = {}
 
-						elif 'DONE' == cmd and 'turn' == data:
-							print "DONE turn"
-							#判断本round此player能否行动,若被禁掉，从可行动列表中删除
-							if player_action_flag == 0 or self.players_list[force].ap <= 0:
-								self.turn_list.remove(force) 	# player在本round不再行动，从turn_list中删除
-								print "%d did no action or no action point left, its actions end in this round!" % (self.current_turn)
-								print "turn_list: ", self.turn_list
-								# 广播更新后的turn_list
-								# 发送的是不在turn_list中的force
-								msg_temp = []
-								for item in self.player_order:
-									if item not in self.turn_list:
-										msg_temp.append(item)
-								msg_to_send = self.encode_msg('TURN',msg_temp) 	# 发送turn_list中剔除的force
-								self.broadcast(msg_to_send)
-								#判断本round是否结束
-								if self.turn_list == []:
-									#本round已经结束
-									print "This round ends! Next round!"
-									#判断是否GAME OVER
-									if self.if_gameover():
-										self.status = 'OVER'
-										print "GAME OVER!"
-								
-									#没有GAME OVER，开始新round				   
-									else:
-										self.round += 1 	# 新的round
-										print "New round %d!" % (self.round)
-										self.player_order = self.get_new_order() 	# 玩家完整顺序列表重排列
-										# broadcast 新turn顺序
-										msg_to_send = self.encode_msg('ORDER',self.player_order)
-										self.broadcast(msg_to_send)
+					elif cmd == 'BUILD':		#建仓指令
+						print 'BUILD action'
+						player = self.players_list[force]		#确定此次建仓指令的玩家
+						dst = int(data)		#此次建仓的位置
+						#计算建仓消耗粮食数量
+						#首次建仓不消耗粮食，非首次建仓消耗3个粮食
+						if player.is_first_barn:
+							grain_cost = 0
+							player.is_first_barn = False
+						else:
+							grain_cost = 3
+							player.is_first_barn = False
 
-										self.turn_list = copy.deepcopy(self.player_order) 	# 更新实际顺序列表
-										self.current_turn = copy.deepcopy(self.turn_list[0]) # 更新当前turn
-										self.next_turn = copy.deepcopy(self.turn_list[1]) 		# 更新下一个turn
-										for player in self.players_list.values(): 	# 更新所有玩家ap
-											player.ap = 10 #每个新round开始时，每个player的ap行动点赋10
-										# broadcast 新round和turn
-										msg_to_send = self.encode_msg('ROUND', [self.round, self.current_turn])
-										self.broadcast(msg_to_send)
-								else:
-									self.current_turn = copy.deepcopy(self.next_turn)
-									self.next_turn = self.get_next_turn()
-									# 广播whose turn
-									msg_to_send = self.encode_msg('ROUND', [self.round, self.current_turn])
-									self.broadcast(msg_to_send)
-													   
-							else:
-								print "Round continue! Next turn!"
-								# 本round没有结束，继续此round，下一个玩家的turn
-								player_action_flag = 0
-								# 确定下一个turn
-								self.current_turn = self.next_turn
+						#判断建仓的dst是否在该玩家拥有地块list中，并且不是城市
+						#行动点>1才可建仓，并且玩家粮食数目足够建仓
+						if (dst in player.lands) and (player.map.id2land[dst].type != 3) and (player.ap >= 1) and (sum(player.grain) >= grain_cost) and (player.map.id2land[dst].is_barn == False):
+							# 缺去掉仓的情况=============
+							print 'build legal'
+							player.map.id2land[dst].is_barn = True    #标记此dst的建仓状态label为True
+							player.ap -= 1           #消耗1个行动点
+							self.consume_grain(force, grain_cost) 	#建仓消耗粮食数量
+							# player.grain -= grain_cost  #建仓消耗粮食数量
+
+							msg_to_send = self.encode_msg('UPDATE', [force, int(player.ap), 'BUILD', dst])
+							self.broadcast(msg_to_send)
+						else:
+							print 'build illegal'
+							msg_to_send = self.encode_msg('ILLEGAL', ['BUILD', dst])
+							self.send_msg(msg_to_send, force)
+
+					elif cmd == 'RECRUIT':		#征兵指令
+						print 'RECRUIT action'
+						player = self.players_list[force]		#确定此次征兵指令的玩家
+						dst = int(data)		#此次征兵的位置
+						#判断征兵的dst是否在该玩家拥有地块list中，并且是城市
+						#行动点>1才可设置征兵
+
+						if (dst in player.lands) and (player.map.id2land[dst].type == 3) and (player.ap >= 1) and (player.map.id2land[dst].is_recruit == False):
+						# 缺已经有征兵标志情况=============
+							print 'recruit legal'
+							player.map.id2land[dst].is_recruit = True    #标记此dst的征兵状态label为True
+							player.ap -= 1           #消耗1个行动点
+							msg_to_send = self.encode_msg('UPDATE', [force, int(player.ap), 'RECRUIT', dst])
+							self.broadcast(msg_to_send)
+						else:
+							print 'recruit illegal'
+							msg_to_send = self.encode_msg('ILLEGAL', ['RECRUIT', dst])
+							self.send_msg(msg_to_send, force)
+
+					elif 'DONE' == cmd and 'turn' == data:
+						print "DONE turn"
+						#判断本round此player能否行动,若被禁掉，从可行动列表中删除
+						if player_action_flag == 0 or self.players_list[force].ap <= 0:
+							self.turn_list.remove(force) 	# player在本round不再行动，从turn_list中删除
+							print "%d did no action or no action point left, its actions end in this round!" % (self.current_turn)
+							print "turn_list: ", self.turn_list
+							# 广播更新后的turn_list
+							# 发送的是不在turn_list中的force
+							msg_temp = []
+							for item in self.player_order:
+								if item not in self.turn_list:
+									msg_temp.append(item)
+							msg_to_send = self.encode_msg('TURN',msg_temp) 	# 发送turn_list中剔除的force
+							self.broadcast(msg_to_send)
+
+							#判断本round是否结束
+							if self.turn_list == []: # 本round结束，进入POSTROUND状态
+								self.status = 'POSTROUND'
+								print 'status: ', 'POSTROUND'
+							else: 	# 本round没有结束，进入本round的下一个turn
+								self.current_turn = copy.deepcopy(self.next_turn)
 								self.next_turn = self.get_next_turn()
 								# 广播whose turn
 								msg_to_send = self.encode_msg('ROUND', [self.round, self.current_turn])
 								self.broadcast(msg_to_send)
-																		  
+												   
+						else:
+							print "Round continue! Next turn!"
+							# 本round没有结束，继续此round，下一个玩家的turn
+							player_action_flag = 0
+							# 确定下一个turn
+							self.current_turn = self.next_turn
+							self.next_turn = self.get_next_turn()
+							# 广播whose turn
+							msg_to_send = self.encode_msg('ROUND', [self.round, self.current_turn])
+							self.broadcast(msg_to_send)
+													
+			elif self.status == 'POSTROUND':
+				print "POSTROUND stage!"
+				print "Stage 1: Harvest--"
+				self.harvest()
+
+
+				#本POSTROUND已经结束
+				print "This round ends! Next round!"
+				#判断是否GAME OVER
+				if self.if_gameover():
+					self.status = 'OVER'
+					print "GAME OVER!"
+			
+				#没有GAME OVER，开始新round				   
+				else:
+					self.round += 1 	# 新的round
+					print "New round %d!" % (self.round)
+					self.player_order = self.get_new_order() 	# 玩家完整顺序列表重排列
+					# broadcast 新turn顺序
+					msg_to_send = self.encode_msg('ORDER',self.player_order)
+					self.broadcast(msg_to_send)
+
+					self.turn_list = copy.deepcopy(self.player_order) 	# 更新实际顺序列表
+					self.current_turn = copy.deepcopy(self.turn_list[0]) # 更新当前turn
+					self.next_turn = copy.deepcopy(self.turn_list[1]) 		# 更新下一个turn
+					for player in self.players_list.values(): 	# 更新所有玩家ap
+						player.ap = 10 #每个新round开始时，每个player的ap行动点赋10
+					self.status = 'GAME'
+					# broadcast 新round和turn
+					msg_to_send = self.encode_msg('ROUND', [self.round, self.current_turn])
+					self.broadcast(msg_to_send)
+
 			elif self.status == 'OVER':                   
 				# self.order_dic={}
 				# for player in self.players_list.values():

@@ -26,9 +26,20 @@ class Map:
 		with open('../data/id2land.pkl', 'rb') as f:
 			self.id2land = pickle.load(f)
 
+	## The function is used to get the neighbour of land
+	def get_neighbour_id(self, land_id):
+		neighbour_id = []
+
+		for v, link in enumerate(self.adj_matrix[land_id]):
+			if link:
+				neighbour_id.append(v)
+		return neighbour_id
+
 
 if __name__ == '__main__':
 	# simple test for the Map class.
 	myMap = Map()
+	print myMap.adj_matrix[20]
+	print myMap.get_neighbour_id(20)
 	for k,v in myMap.id2land.items():
 		print v
