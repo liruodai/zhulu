@@ -495,7 +495,7 @@ class Server:
 						dst = int(data)		#此次防守的位置
 						#判断防守的dst是否在该玩家拥有地块list中
 						#行动点>1才可设置防守
-						if (dst in player.lands) and (player.ap >= 1) and (not (player.map.id2land[dst].unmanning != {} and player.map.id2land[dst].is_barn)):
+						if (dst in player.lands) and (player.ap >= 1) and (not player.map.id2land[dst].is_defend) and (not (player.map.id2land[dst].unmanning != {} and player.map.id2land[dst].is_barn)):
 							# 缺去掉仓的情况=============
 							print 'guard legal'
 							player.map.id2land[dst].is_defend = True    #标记此dst的防守状态label为True
@@ -597,9 +597,12 @@ class Server:
 													
 			elif self.status == 'POSTROUND':
 				print "POSTROUND stage!"
+				# 回合结束阶段1：收粮
 				print "Stage 1: Harvest--"
 				self.harvest()
-
+				for f in [Yan, Qi, Qin, Chu]:
+					msg_to_send = self.encode_msg('UPDATE',[f,10,'GRAIN',self.players_list[f].grain[0],self.players_list[f].grain[1]])
+					self.send_msg(msg_to_send, f)
 
 				#本POSTROUND已经结束
 				print "This round ends! Next round!"
